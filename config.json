@@ -1,0 +1,20 @@
+{
+  "botName": "Announcer",
+  "defaultColor": "#5865F2",
+  "footerText": "Announcement",
+  "footerIconUrl": "",
+  "thumbnailUrl": "",
+  "allowedRoleIds": [],
+  "allowedRoleNote": "Add Discord role IDs here to restrict who can use /announce. Leave empty to allow anyone with 'Manage Messages' permission.",
+  "mentionOptions": {
+    "everyone": false,
+    "here": false
+  },
+  "presets": {
+    "info": { "color": "#3498db", "emoji": "ℹ️" },
+    "success": { "color": "#2ecc71", "emoji": "✅" },
+    "warning": { "color": "#f1c40f", "emoji": "⚠️" },
+    "alert": { "color": "#e74c3c", "emoji": "🚨" },
+    "event": { "color": "#9b59b6", "emoji": "🎉" }
+  }
+}
