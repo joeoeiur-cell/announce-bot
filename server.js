@@ -12,9 +12,6 @@ const { client, configPath } = require('./index.js');
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
-// Serve static frontend files BEFORE custom route fallbacks
-app.use(express.static(path.join(__dirname, 'public')));
-
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || 'changeme';
 
@@ -33,11 +30,13 @@ function requireAuth(req, res, next) {
 }
 
 // ---------- config.json read/write ----------
+// The bot (index.js) watches this file and hot-reloads automatically on write.
 function readConfig() {
   return JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
 function writeConfig(next) {
+  // Basic shape guard so a bad request can't corrupt the file the bot depends on
   const required = ['botName', 'defaultColor', 'footerText', 'presets', 'mentionOptions'];
   for (const key of required) {
     if (!(key in next)) throw new Error(`Config is missing required field: ${key}`);
@@ -123,7 +122,7 @@ app.get('/api/guilds/:guildId/roles', requireAuth, async (req, res) => {
   }
 });
 
-// ---------- Config: read/update ----------
+// ---------- Config: read/update everything customizable ----------
 app.get('/api/config', requireAuth, (req, res) => {
   res.json(readConfig());
 });
@@ -137,6 +136,8 @@ app.put('/api/config', requireAuth, (req, res) => {
   }
 });
 
+// Presets: add/update/delete individually, so the dashboard doesn't need
+// to round-trip the whole config object for small edits.
 app.put('/api/config/presets/:key', requireAuth, (req, res) => {
   const { color, emoji } = req.body || {};
   if (!color || !/^#([0-9A-F]{3}){1,2}$/i.test(color)) {
@@ -155,7 +156,9 @@ app.delete('/api/config/presets/:key', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Send announcement ----------
+// ---------- Send announcement from the dashboard ----------
+// Mirrors the exact embed-building logic in index.js's /announce handler,
+// so a manual send looks identical to a slash-command send.
 app.post('/api/announce/send', requireAuth, async (req, res) => {
   if (!client.isReady()) return res.status(503).json({ error: 'Bot is not connected yet' });
 
@@ -207,13 +210,13 @@ app.post('/api/announce/send', requireAuth, async (req, res) => {
   }
 });
 
-// ---------- Catch-all for SPA Single Page App ----------
+// ---------- Static frontend ----------
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Listen on 0.0.0.0 so Railway can bind to all network interfaces
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`Dashboard running on port ${PORT}`);
 });
