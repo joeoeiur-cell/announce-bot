@@ -1,15 +1,21 @@
 {
   "name": "announce-bot",
-  "version": "1.0.0",
-  "description": "A customizable Discord announcement bot",
-  "main": "index.js",
+  "version": "1.1.0",
+  "description": "A customizable Discord announcement bot with a web dashboard",
+  "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js",
+    "start": "node server.js",
+    "bot-only": "node index.js",
     "deploy": "node deploy-commands.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
+    "cookie-session": "^2.1.0",
     "discord.js": "^14.15.3",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
   }
 }

@@ -33,12 +33,10 @@ function hasPermission(interaction) {
   const member = interaction.member;
   if (!member) return false;
 
-  // If specific roles are configured, require one of them
   if (config.allowedRoleIds && config.allowedRoleIds.length > 0) {
     return config.allowedRoleIds.some(roleId => member.roles.cache.has(roleId));
   }
 
-  // Otherwise fall back to Manage Messages permission
   return member.permissions.has(PermissionFlagsBits.ManageMessages);
 }
 
@@ -68,7 +66,6 @@ client.on('interactionCreate', async (interaction) => {
   if (preset) color = preset.color;
   if (customColor) color = customColor;
 
-  // Validate hex color, fall back to default if invalid
   if (!/^#([0-9A-F]{3}){1,2}$/i.test(color)) {
     color = config.defaultColor;
   }
@@ -116,3 +113,5 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+module.exports = { client, getConfig: () => config, configPath };

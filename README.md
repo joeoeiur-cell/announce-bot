@@ -1,62 +1,51 @@
-# Announce Bot
+# Announce Bot + Dashboard
 
-A customizable Discord announcement bot with a `/announce` slash command — pick a color, title, image, style preset, target channel, and optional @everyone ping.
+Your original `/announce` slash-command bot, unchanged, plus a password-protected web dashboard that edits `config.json` and can also send announcements directly.
+
+## What's different from your repo
+
+- `index.js` — identical behavior. Only addition: it now exports `client` and `configPath` at the bottom so the dashboard can reuse the same Discord connection instead of opening a second one.
+- `config.json`, `deploy-commands.js` — untouched.
+- `server.js` — **new**. An Express app that requires `index.js` (starting the bot), serves the dashboard, and reads/writes `config.json`.
+- `public/` — **new**. The dashboard itself.
+- `package.json` — added `express` and `cookie-session`; `npm start` now runs `server.js` instead of `index.js` directly. `npm run bot-only` still runs just the bot with no dashboard, if you ever want that.
+
+The bot already hot-reloads `config.json` via `fs.watchFile` — so any change made in the dashboard takes effect immediately, no restart needed. The dashboard doesn't reimplement that logic; it just writes the same file your bot already watches.
+
+## Dashboard sections
+
+- **Compose** — send an announcement from the browser. Builds the exact same embed shape as `/announce`, including preset + custom color logic, and shows a live Discord-style preview as you type.
+- **Presets** — add, view, and delete entries in `config.presets`. These are the same choices available in `/announce preset:`.
+- **Bot identity** — `botName`, `defaultColor`, `footerText`, `footerIconUrl`, `thumbnailUrl`.
+- **Permissions & mentions** — manage `allowedRoleIds` (who can use `/announce`) and the `mentionOptions.everyone` / `.here` toggles.
 
 ## Setup
 
-1. **Create a Discord application & bot**
-   - Go to https://discord.com/developers/applications → New Application
-   - Go to the "Bot" tab → Add Bot → copy the **token**
-   - Go to "OAuth2" → General → copy the **Client ID**
-   - Under "Bot" tab, no privileged intents are needed for this bot
-
-2. **Invite the bot to your server**
-   - OAuth2 → URL Generator → scopes: `bot`, `applications.commands`
-   - Bot permissions: `Send Messages`, `Embed Links`, `Mention Everyone` (optional)
-   - Open the generated URL and add it to your server
-
-3. **Install dependencies**
+1. **Discord application** — same as before: create it in the [Developer Portal](https://discord.com/developers/applications), copy the bot token and client ID, invite it with `bot` + `applications.commands` scopes and `Send Messages`, `Embed Links`, `Mention Everyone` (optional) permissions.
+2. **Install dependencies**
    ```
    npm install
    ```
-
-4. **Configure secrets**
-   - Rename `.env.example` to `.env`
-   - Fill in `DISCORD_TOKEN`, `CLIENT_ID`, and (optionally) `GUILD_ID` for your test server — guild-scoped commands update instantly, global commands take up to an hour
-
-5. **Register the slash command**
+3. **Configure secrets** — copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`, `CLIENT_ID`, optionally `GUILD_ID`, plus the new `DASHBOARD_PASSWORD` and `SESSION_SECRET`.
+4. **Register the slash command** (only needed once, or after changing its options)
    ```
    npm run deploy
    ```
-
-6. **Start the bot**
+5. **Start bot + dashboard together**
    ```
    npm start
    ```
+   Opens on `http://localhost:3000`.
 
-## Customizing
+## Deploying to Railway
 
-Everything visual/behavioral lives in `config.json` — edit it anytime, changes apply live without restarting:
+1. Push this folder to a GitHub repo, connect it to a new Railway project. Nixpacks detects Node automatically.
+2. Add a **Volume** mounted at `/app` (or at least somewhere `config.json` lives) if you want dashboard edits to persist across redeploys — otherwise `config.json` resets to whatever's in your repo on every deploy. Simplest option: just commit `config.json` changes back to the repo when you're happy with them, and treat the dashboard as a live-editing tool between deploys.
+3. Set environment variables in Railway: `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` (optional), `DASHBOARD_PASSWORD`, `SESSION_SECRET`.
+4. Deploy. Railway gives you a public URL — that's your dashboard.
 
-- `defaultColor` — hex color used when no preset/color is picked
-- `footerText` / `footerIconUrl` — embed footer
-- `thumbnailUrl` — small image in the corner of every announcement
-- `allowedRoleIds` — array of role IDs allowed to use `/announce`. Leave empty to just require "Manage Messages" permission
-- `presets` — named style shortcuts (info/success/warning/alert/event by default) with their own color + emoji. Add your own or edit existing ones
-- `mentionOptions.everyone` — must be `true` for the `ping_everyone` command option to actually ping
+## Notes
 
-## Using it
-
-In any channel the bot can see:
-```
-/announce message: "Server maintenance tonight at 9PM EST" title: "Maintenance" preset: warning ping_everyone: true
-```
-
-Options:
-- `message` (required) — the announcement body
-- `title` — custom title, otherwise uses bot name
-- `preset` — info / success / warning / alert / event (adds an emoji + color)
-- `color` — custom hex color, overrides preset color
-- `channel` — post to a different channel than the one you're in
-- `image` — image URL shown in the embed
-- `ping_everyone` — ping @everyone (only works if enabled in config)
+- Only one Discord connection is opened (by `index.js`); the dashboard reuses it rather than logging in separately.
+- `/announce` in Discord and "Send announcement" in the dashboard produce identical output — same title/preset/color/footer/thumbnail logic.
+- Permission checks for `/announce` itself are unchanged (`allowedRoleIds` or Manage Messages). The dashboard's own access control is just the password — anyone with the password can send from it and edit config, so treat that password like an admin credential.
