@@ -63,11 +63,6 @@
       <select id="guild-select" class="select"></select>
     </div>
 
-    <div class="side-section">
-      <label class="side-label">Channel</label>
-      <select id="channel-select" class="select"></select>
-    </div>
-
     <div class="side-section" id="bot-mini-card">
       <img id="bot-avatar" class="bot-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="" />
       <div>
@@ -83,7 +78,7 @@
     <section id="view-compose" class="view active">
       <div class="view-header">
         <h1>Compose</h1>
-        <p class="view-sub">Sends the same way <code>/announce</code> does — this is an extra way in, not a replacement for it.</p>
+        <p class="view-sub">Sends the same way <code>/announce</code> does. Click directly on the preview to edit — the form stays in sync.</p>
       </div>
       <div class="compose-grid">
 
@@ -91,11 +86,15 @@
           <div class="panel">
             <h2 class="panel-title">Announcement</h2>
 
-            <label class="field-label">Message</label>
-            <textarea id="f-message" class="textarea" rows="4" placeholder="The announcement text"></textarea>
+            <label class="field-label">Author <span class="field-optional">(small text above the title)</span></label>
+            <input id="f-author" class="input" placeholder="Optional" />
 
             <label class="field-label">Title</label>
             <input id="f-title" class="input" placeholder="Leave blank to use the bot name" />
+
+            <label class="field-label">Message</label>
+            <textarea id="f-message" class="textarea" rows="4" placeholder="The announcement text"></textarea>
+            <div class="char-counter"><span id="f-message-count">0</span> / 4000</div>
 
             <label class="field-label">Preset</label>
             <select id="f-preset" class="select">
@@ -108,25 +107,60 @@
               <input id="f-color-text" class="input" placeholder="Overrides preset color if set" />
             </div>
 
-            <label class="field-label">Image URL</label>
-            <input id="f-image" class="input" placeholder="https://..." />
+            <label class="field-label">Image</label>
+            <div class="image-source-row">
+              <button type="button" id="f-image-upload-btn" class="btn-ghost small">Upload from Photos</button>
+              <span id="f-image-filename" class="hint-text" style="margin:0"></span>
+            </div>
+            <input type="file" id="f-image-file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden" />
+            <input id="f-image" class="input" placeholder="...or paste an image URL" style="margin-top:8px" />
+
+            <label class="field-label" style="margin-top:14px">Mention roles</label>
+            <div id="mention-roles-chips" class="chips-row"></div>
+            <select id="mention-role-select" class="select">
+              <option value="">Add a role to mention…</option>
+            </select>
 
             <label class="toggle" style="margin-top:14px">
               <input type="checkbox" id="f-ping-everyone" /><span>Ping @everyone</span>
             </label>
-            <p id="ping-disabled-note" class="hint-text hidden">@everyone pings are turned off in Permissions &amp; mentions.</p>
+            <p id="ping-everyone-disabled-note" class="hint-text hidden">@everyone pings are turned off in Permissions &amp; mentions.</p>
+
+            <label class="toggle" style="margin-top:8px">
+              <input type="checkbox" id="f-ping-here" /><span>Ping @here</span>
+            </label>
+            <p id="ping-here-disabled-note" class="hint-text hidden">@here pings are turned off in Permissions &amp; mentions.</p>
+          </div>
+
+          <div class="panel">
+            <h2 class="panel-title">Destination</h2>
+            <label class="field-label">Channel</label>
+            <select id="f-channel-select" class="select"></select>
           </div>
 
           <div class="panel">
             <h2 class="panel-title">Send</h2>
-            <button id="send-now-btn" class="btn-primary">Send announcement</button>
+            <label class="toggle">
+              <input type="checkbox" id="f-schedule-toggle" /><span>Schedule for later</span>
+            </label>
+            <div id="schedule-row" class="schedule-row hidden">
+              <input type="datetime-local" id="f-schedule-when" class="input" />
+            </div>
+            <button id="send-now-btn" class="btn-primary" style="margin-top:14px">Send announcement</button>
             <p id="send-status" class="send-status"></p>
+          </div>
+
+          <div class="panel" id="scheduled-panel">
+            <h2 class="panel-title">Scheduled</h2>
+            <div id="scheduled-list" class="scheduled-list">
+              <div class="empty-state">Nothing scheduled.</div>
+            </div>
           </div>
         </div>
 
         <div class="preview-col">
           <div class="panel preview-panel">
-            <h2 class="panel-title">Live preview</h2>
+            <h2 class="panel-title">Live preview <span class="hint-text" style="margin:0">— click any part to edit</span></h2>
             <div class="discord-window">
               <div class="discord-msg">
                 <img id="prev-bot-avatar" class="discord-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="" />
@@ -136,14 +170,18 @@
                     <span class="discord-bot-tag">BOT</span>
                     <span class="discord-time">Today at 12:00 PM</span>
                   </div>
-                  <div id="prev-content" class="discord-content hidden">@everyone</div>
+                  <div id="prev-content" class="discord-content hidden"></div>
                   <div class="discord-embed">
                     <div class="embed-accent"></div>
                     <div class="embed-inner">
                       <div class="embed-main">
-                        <div id="prev-embed-title" class="embed-title"></div>
-                        <div id="prev-embed-desc" class="embed-desc"></div>
-                        <img id="prev-embed-image" class="embed-image hidden" />
+                        <div id="prev-embed-author" class="embed-author editable hidden" contenteditable="true" data-field="author" data-placeholder="Author name"></div>
+                        <div id="prev-embed-title" class="embed-title editable" contenteditable="true" data-field="title" data-placeholder="Title"></div>
+                        <div id="prev-embed-desc" class="embed-desc editable" contenteditable="true" data-field="message" data-placeholder="Your announcement text will appear here."></div>
+                        <div id="prev-embed-image-wrap" class="embed-image-wrap hidden">
+                          <img id="prev-embed-image" class="embed-image" />
+                          <button type="button" id="prev-embed-image-remove" class="image-remove-btn" title="Remove image">&times;</button>
+                        </div>
                         <div id="prev-embed-footer" class="embed-footer"></div>
                       </div>
                       <img id="prev-embed-thumb" class="embed-thumb hidden" />
@@ -152,6 +190,7 @@
                 </div>
               </div>
             </div>
+            <p class="hint-text">Editing here updates the form on the left, and vice versa.</p>
           </div>
         </div>
 

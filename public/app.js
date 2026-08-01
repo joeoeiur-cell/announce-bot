@@ -5,6 +5,9 @@ const state = {
   selectedGuild: null,
   selectedChannel: null,
   config: null,
+  imageFile: null, // File object when uploaded from Photos
+  mentionRoleIds: [],
+  scheduledPollTimer: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -75,8 +78,13 @@ async function boot() {
   await Promise.all([refreshBotStatus(), loadConfig()]);
   await loadGuilds();
   bindComposeListeners();
+  bindPreviewEditing();
+  bindImageUpload();
+  bindScheduling();
   renderPreview();
+  refreshScheduledList();
   setInterval(refreshBotStatus, 15000);
+  state.scheduledPollTimer = setInterval(refreshScheduledList, 20000);
 }
 
 async function refreshBotStatus() {
@@ -99,6 +107,7 @@ async function loadConfig() {
   renderPresetsList();
   fillIdentityForm();
   fillPermissionsForm();
+  if (document.querySelector('#f-ping-everyone')) applyMentionToggleAvailability();
   renderPreview();
 }
 
@@ -127,17 +136,22 @@ async function loadChannelsAndRoles(guildId) {
   state.channels = channels;
   state.roles = roles;
 
-  const chSel = $('#channel-select');
+  const chSel = $('#f-channel-select');
   chSel.innerHTML = channels.map((c) => `<option value="${c.id}">#${escapeHtml(c.name)}</option>`).join('');
   if (channels.length) {
     state.selectedChannel = channels[0].id;
     chSel.value = state.selectedChannel;
+  } else {
+    state.selectedChannel = null;
   }
+  state.mentionRoleIds = [];
   renderAllowedRolesChips();
   loadRoleSelectOptions();
+  renderMentionRoleOptions();
+  renderMentionChips();
 }
 
-$('#channel-select').addEventListener('change', (e) => {
+$('#f-channel-select').addEventListener('change', (e) => {
   state.selectedChannel = e.target.value;
 });
 
@@ -149,9 +163,11 @@ function populatePresetDropdown() {
 }
 
 function bindComposeListeners() {
-  ['f-message', 'f-title', 'f-image'].forEach((id) => $('#' + id).addEventListener('input', renderPreview));
+  ['f-message', 'f-title', 'f-author', 'f-image'].forEach((id) => $('#' + id).addEventListener('input', renderPreview));
+  $('#f-message').addEventListener('input', updateCharCount);
   $('#f-preset').addEventListener('change', renderPreview);
   $('#f-ping-everyone').addEventListener('change', renderPreview);
+  $('#f-ping-here').addEventListener('change', renderPreview);
   $('#f-color').addEventListener('input', (e) => {
     $('#f-color-text').value = e.target.value;
     renderPreview();
@@ -160,9 +176,31 @@ function bindComposeListeners() {
     if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) $('#f-color').value = e.target.value;
     renderPreview();
   });
+  $('#prev-embed-image-remove').addEventListener('click', () => {
+    $('#f-image').value = '';
+    state.imageFile = null;
+    $('#f-image-filename').textContent = '';
+    renderPreview();
+  });
 
-  $('#ping-disabled-note').classList.toggle('hidden', !!state.config.mentionOptions.everyone);
-  $('#f-ping-everyone').disabled = !state.config.mentionOptions.everyone;
+  applyMentionToggleAvailability();
+  updateCharCount();
+}
+
+function applyMentionToggleAvailability() {
+  const everyoneAllowed = !!state.config.mentionOptions.everyone;
+  const hereAllowed = !!state.config.mentionOptions.here;
+  $('#ping-everyone-disabled-note').classList.toggle('hidden', everyoneAllowed);
+  $('#f-ping-everyone').disabled = !everyoneAllowed;
+  $('#ping-here-disabled-note').classList.toggle('hidden', hereAllowed);
+  $('#f-ping-here').disabled = !hereAllowed;
+}
+
+function updateCharCount() {
+  const len = $('#f-message').value.length;
+  const counter = $('#f-message-count');
+  counter.textContent = len;
+  counter.parentElement.classList.toggle('over-limit', len > 4000);
 }
 
 function currentColor() {
@@ -174,29 +212,45 @@ function currentColor() {
   return state.config.defaultColor;
 }
 
+function currentImageSrc() {
+  if (state.imageFile) return URL.createObjectURL(state.imageFile);
+  return $('#f-image').value.trim();
+}
+
 function renderPreview() {
   const message = $('#f-message').value;
   const title = $('#f-title').value.trim();
+  const author = $('#f-author').value.trim();
   const presetKey = $('#f-preset').value;
   const preset = presetKey ? state.config.presets[presetKey] : null;
-  const image = $('#f-image').value.trim();
   const pingEveryone = $('#f-ping-everyone').checked && state.config.mentionOptions.everyone;
+  const pingHere = !pingEveryone && $('#f-ping-here').checked && state.config.mentionOptions.here;
 
   const color = currentColor();
   $('.discord-embed').style.setProperty('--embed-color', color);
 
+  const authorEl = $('#prev-embed-author');
+  if (document.activeElement !== authorEl) authorEl.textContent = author;
+  authorEl.classList.toggle('hidden', !author && document.activeElement !== authorEl);
+
   const icon = preset && preset.emoji ? preset.emoji + ' ' : '';
   const displayTitle = title ? icon + title : icon + state.config.botName;
-  $('#prev-embed-title').textContent = displayTitle;
+  const titleEl = $('#prev-embed-title');
+  if (document.activeElement !== titleEl) titleEl.textContent = displayTitle;
 
-  $('#prev-embed-desc').textContent = message || 'Your announcement text will appear here.';
+  const descEl = $('#prev-embed-desc');
+  if (document.activeElement !== descEl) descEl.textContent = message;
 
+  const imgWrap = $('#prev-embed-image-wrap');
   const imgEl = $('#prev-embed-image');
-  if (image) {
-    imgEl.src = image;
-    imgEl.classList.remove('hidden');
-    imgEl.onerror = () => imgEl.classList.add('hidden');
-  } else imgEl.classList.add('hidden');
+  const imageSrc = currentImageSrc();
+  if (imageSrc) {
+    imgEl.src = imageSrc;
+    imgWrap.classList.remove('hidden');
+    imgEl.onerror = () => imgWrap.classList.add('hidden');
+  } else {
+    imgWrap.classList.add('hidden');
+  }
 
   const thumbEl = $('#prev-embed-thumb');
   if (state.config.thumbnailUrl) {
@@ -207,8 +261,166 @@ function renderPreview() {
 
   $('#prev-embed-footer').textContent = (state.config.footerText || '') + ' • Today at 12:00 PM';
 
+  const mentionLabels = [];
+  if (pingEveryone) mentionLabels.push('@everyone');
+  else if (pingHere) mentionLabels.push('@here');
+  state.mentionRoleIds.forEach((id) => {
+    const role = state.roles.find((r) => r.id === id);
+    mentionLabels.push(role ? `@${role.name}` : '@role');
+  });
+
   const contentEl = $('#prev-content');
-  contentEl.classList.toggle('hidden', !pingEveryone);
+  contentEl.textContent = mentionLabels.join(' ');
+  contentEl.classList.toggle('hidden', !mentionLabels.length);
+}
+
+// ---------- Click-to-edit preview (contenteditable synced to form) ----------
+function bindPreviewEditing() {
+  const map = {
+    author: '#f-author',
+    title: '#f-title',
+    message: '#f-message',
+  };
+  $$('.editable[data-field]').forEach((el) => {
+    const formSel = map[el.dataset.field];
+    if (!formSel) return;
+
+    el.addEventListener('focus', () => {
+      if (el.dataset.field === 'author') el.classList.remove('hidden');
+    });
+
+    el.addEventListener('input', () => {
+      const text = el.textContent;
+      $(formSel).value = text;
+      if (el.dataset.field === 'message') updateCharCount();
+    });
+
+    el.addEventListener('blur', () => {
+      renderPreview();
+    });
+
+    // Enter submits/blurs single-line fields instead of inserting a newline
+    if (el.dataset.field !== 'message') {
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          el.blur();
+        }
+      });
+    }
+  });
+}
+
+// ---------- Image upload from Photos ----------
+function bindImageUpload() {
+  $('#f-image-upload-btn').addEventListener('click', () => $('#f-image-file').click());
+  $('#f-image-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      $('#send-status').textContent = 'Image must be under 8MB.';
+      $('#send-status').className = 'send-status err';
+      e.target.value = '';
+      return;
+    }
+    state.imageFile = file;
+    $('#f-image').value = '';
+    $('#f-image-filename').textContent = file.name;
+    renderPreview();
+  });
+  $('#f-image').addEventListener('input', () => {
+    if ($('#f-image').value.trim()) {
+      state.imageFile = null;
+      $('#f-image-filename').textContent = '';
+      $('#f-image-file').value = '';
+    }
+  });
+}
+
+// ---------- Mention roles ----------
+function renderMentionRoleOptions() {
+  const sel = $('#mention-role-select');
+  const chosen = new Set(state.mentionRoleIds);
+  sel.innerHTML =
+    '<option value="">Add a role to mention…</option>' +
+    state.roles.filter((r) => !chosen.has(r.id)).map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+}
+
+function renderMentionChips() {
+  const wrap = $('#mention-roles-chips');
+  if (!state.mentionRoleIds.length) {
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = state.mentionRoleIds
+    .map((id) => {
+      const role = state.roles.find((r) => r.id === id);
+      const label = role ? role.name : id;
+      return `<span class="role-chip">${escapeHtml(label)}<button data-id="${escapeAttr(id)}" title="Remove">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+      </button></span>`;
+    })
+    .join('');
+  wrap.querySelectorAll('button[data-id]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      state.mentionRoleIds = state.mentionRoleIds.filter((id) => id !== btn.dataset.id);
+      renderMentionRoleOptions();
+      renderMentionChips();
+      renderPreview();
+    })
+  );
+}
+
+$('#mention-role-select').addEventListener('change', (e) => {
+  if (!e.target.value) return;
+  state.mentionRoleIds.push(e.target.value);
+  e.target.value = '';
+  renderMentionRoleOptions();
+  renderMentionChips();
+  renderPreview();
+});
+
+// ---------- Scheduling ----------
+function bindScheduling() {
+  $('#f-schedule-toggle').addEventListener('change', (e) => {
+    $('#schedule-row').classList.toggle('hidden', !e.target.checked);
+    if (e.target.checked && !$('#f-schedule-when').value) {
+      const soon = new Date(Date.now() + 15 * 60000);
+      soon.setSeconds(0, 0);
+      $('#f-schedule-when').value = new Date(soon.getTime() - soon.getTimezoneOffset() * 60000)
+        .toISOString()
+        .slice(0, 16);
+    }
+  });
+}
+
+async function refreshScheduledList() {
+  try {
+    const items = await api('/api/announce/scheduled');
+    const wrap = $('#scheduled-list');
+    if (!items.length) {
+      wrap.innerHTML = '<div class="empty-state">Nothing scheduled.</div>';
+      return;
+    }
+    wrap.innerHTML = items
+      .map((s) => {
+        const when = new Date(s.sendAt).toLocaleString();
+        return `<div class="list-card">
+          <div class="list-card-title">${escapeHtml(s.title || '(no title)')}</div>
+          <div class="list-card-meta">${escapeHtml(when)}</div>
+          <div class="list-card-actions">
+            <button class="btn-danger cancel-scheduled-btn" data-id="${escapeAttr(s.id)}">Cancel</button>
+          </div>
+        </div>`;
+      })
+      .join('');
+    wrap.querySelectorAll('.cancel-scheduled-btn').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        await api(`/api/announce/scheduled/${btn.dataset.id}`, { method: 'DELETE' });
+        refreshScheduledList();
+      })
+    );
+  } catch (e) {}
 }
 
 $('#send-now-btn').addEventListener('click', async () => {
@@ -221,28 +433,73 @@ $('#send-now-btn').addEventListener('click', async () => {
     statusEl.classList.add('err');
     return;
   }
+  if (message.length > 4000) {
+    statusEl.textContent = 'Message is too long (4000 character limit).';
+    statusEl.classList.add('err');
+    return;
+  }
   if (!state.selectedChannel) {
     statusEl.textContent = 'Pick a channel first.';
     statusEl.classList.add('err');
     return;
   }
 
-  statusEl.textContent = 'Sending…';
+  const isScheduled = $('#f-schedule-toggle').checked;
+  let sendAt = null;
+  if (isScheduled) {
+    const when = $('#f-schedule-when').value;
+    if (!when) {
+      statusEl.textContent = 'Pick a date and time to schedule for.';
+      statusEl.classList.add('err');
+      return;
+    }
+    sendAt = new Date(when).getTime();
+    if (sendAt <= Date.now() + 5000) {
+      statusEl.textContent = 'Scheduled time must be at least a few seconds in the future.';
+      statusEl.classList.add('err');
+      return;
+    }
+  }
+
+  const fields = {
+    channelId: state.selectedChannel,
+    message,
+    title: $('#f-title').value.trim(),
+    author: $('#f-author').value.trim(),
+    presetKey: $('#f-preset').value,
+    color: $('#f-color-text').value.trim(),
+    image: state.imageFile ? '' : $('#f-image').value.trim(),
+    pingEveryone: $('#f-ping-everyone').checked,
+    pingHere: $('#f-ping-here').checked,
+    mentionRoleIds: state.mentionRoleIds,
+    sendAt: sendAt || undefined,
+  };
+
+  statusEl.textContent = isScheduled ? 'Scheduling…' : 'Sending…';
   try {
-    await api('/api/announce/send', {
-      method: 'POST',
-      body: JSON.stringify({
-        channelId: state.selectedChannel,
-        message,
-        title: $('#f-title').value.trim(),
-        presetKey: $('#f-preset').value,
-        color: $('#f-color-text').value.trim(),
-        image: $('#f-image').value.trim(),
-        pingEveryone: $('#f-ping-everyone').checked,
-      }),
-    });
-    statusEl.textContent = 'Sent.';
+    let result;
+    if (state.imageFile) {
+      const form = new FormData();
+      Object.entries(fields).forEach(([key, val]) => {
+        if (val === undefined) return;
+        form.append(key, key === 'mentionRoleIds' ? JSON.stringify(val) : val);
+      });
+      form.append('imageFile', state.imageFile);
+      const res = await fetch('/api/announce/send', { method: 'POST', body: form });
+      if (res.status === 401) { showLogin(); throw new Error('Not authenticated'); }
+      result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Request failed');
+    } else {
+      result = await api('/api/announce/send', { method: 'POST', body: JSON.stringify(fields) });
+    }
+
+    statusEl.textContent = result.scheduled ? 'Scheduled.' : 'Sent.';
     statusEl.classList.add('ok');
+    if (result.scheduled) {
+      $('#f-schedule-toggle').checked = false;
+      $('#schedule-row').classList.add('hidden');
+      refreshScheduledList();
+    }
   } catch (err) {
     statusEl.textContent = err.message;
     statusEl.classList.add('err');
